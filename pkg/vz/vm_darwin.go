@@ -204,26 +204,68 @@ func createVM(driver *driver.BaseDriver) (*vz.VirtualMachine, error) {
 }
 
 func createInitialConfig(driver *driver.BaseDriver) (*vz.VirtualMachineConfiguration, error) {
-	efiVariableStore, err := getEFI(driver)
-	if err != nil {
-		return nil, err
-	}
-
-	bootLoader, err := vz.NewEFIBootLoader(vz.WithEFIVariableStore(efiVariableStore))
-	if err != nil {
-		return nil, err
-	}
+	kernel := filepath.Join(driver.Instance.Dir, filenames.Kernel)
+	kernelCmdline := filepath.Join(driver.Instance.Dir, filenames.KernelCmdline)
+	initrd := filepath.Join(driver.Instance.Dir, filenames.Initrd)
+    EFI := false
+    for {
+	    if _, err := os.Stat(kernel); err == nil {
+            if err != nil {
+                EFI = true
+                break
+            }
+	    }
+	    if _, err := os.ReadFile(kernelCmdline); err == nil {
+            if err != nil {
+		        logrus.Warnf("failed to read kernel cmdline options %s", kernelCmdline)
+                break
+            }
+	    }
+	    if _, err := os.Stat(initrd); err == nil {
+            if err != nil {
+		        logrus.Warnf("failed to find initrd at filepath %s", initrd)
+                break
+            }
+	    }
+        break
+    }
 
 	bytes, err := units.RAMInBytes(*driver.Yaml.Memory)
 	if err != nil {
 		return nil, err
 	}
 
-	vmConfig, err := vz.NewVirtualMachineConfiguration(
-		bootLoader,
-		uint(*driver.Yaml.CPUs),
-		uint64(bytes),
-	)
+    var vmConfig *vz.VirtualMachineConfiguration
+    if EFI {
+	    efiVariableStore, err := getEFI(driver)
+	    if err != nil {
+	    	return nil, err
+	    }
+
+	    EFIBootLoader, err := vz.NewEFIBootLoader(vz.WithEFIVariableStore(efiVariableStore))
+	    if err != nil {
+	    	return nil, err
+	    }
+
+	    vmConfig, err = vz.NewVirtualMachineConfiguration(
+	    	EFIBootLoader,
+	    	uint(*driver.Yaml.CPUs),
+	    	uint64(bytes),
+	    )
+    } else {
+        commandLine := vz.WithCommandLine(kernelCmdline)
+        initrdLinux := vz.WithInitrd(initrd)
+	    LinuxBootLoader, err := vz.NewLinuxBootLoader(kernel, commandLine, initrdLinux)
+	    if err != nil {
+	    	return nil, err
+	    }
+
+	    vmConfig, err = vz.NewVirtualMachineConfiguration(
+	    	LinuxBootLoader,
+	    	uint(*driver.Yaml.CPUs),
+	    	uint64(bytes),
+	    )
+    }
 	if err != nil {
 		return nil, err
 	}
