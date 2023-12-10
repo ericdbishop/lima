@@ -14,6 +14,7 @@ import (
 	"github.com/lima-vm/lima/pkg/store/filenames"
 )
 
+// EnsureDisk also ensures the kernel and the initrd
 func EnsureDisk(driver *driver.BaseDriver) error {
 	diffDisk := filepath.Join(driver.Instance.Dir, filenames.DiffDisk)
 	if _, err := os.Stat(diffDisk); err == nil || !errors.Is(err, os.ErrNotExist) {
@@ -22,6 +23,9 @@ func EnsureDisk(driver *driver.BaseDriver) error {
 	}
 
 	baseDisk := filepath.Join(driver.Instance.Dir, filenames.BaseDisk)
+	kernel := filepath.Join(driver.Instance.Dir, filenames.Kernel)
+	kernelCmdline := filepath.Join(driver.Instance.Dir, filenames.KernelCmdline)
+	initrd := filepath.Join(driver.Instance.Dir, filenames.Initrd)
 	if _, err := os.Stat(baseDisk); errors.Is(err, os.ErrNotExist) {
 		var ensuredBaseDisk bool
 		errs := make([]error, len(driver.Yaml.Images))
@@ -29,6 +33,24 @@ func EnsureDisk(driver *driver.BaseDriver) error {
 			if _, err := fileutils.DownloadFile(baseDisk, f.File, true, "the image", *driver.Yaml.Arch); err != nil {
 				errs[i] = err
 				continue
+			}
+			if f.Kernel != nil {
+				if _, err := fileutils.DownloadFile(kernel, f.Kernel.File, false, "the kernel", *driver.Yaml.Arch); err != nil {
+					errs[i] = err
+					continue
+				}
+				if f.Kernel.Cmdline != "" {
+					if err := os.WriteFile(kernelCmdline, []byte(f.Kernel.Cmdline), 0o644); err != nil {
+						errs[i] = err
+						continue
+					}
+				}
+			}
+			if f.Initrd != nil {
+				if _, err := fileutils.DownloadFile(initrd, *f.Initrd, false, "the initrd", *driver.Yaml.Arch); err != nil {
+					errs[i] = err
+					continue
+				}
 			}
 			ensuredBaseDisk = true
 			break
